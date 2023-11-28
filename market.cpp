@@ -23,6 +23,10 @@ struct order{
     int offer;
 };
 
+void print(order* t){
+    std::cout<<t->start_time<<" "<<t->broker<<" "<<t->offer<<" "<<t->companies[0]<<" "<<t->price<<" "<<t->quantity<<" "<<t->end_time-t->start_time<<std::endl;
+}
+
 struct structure{
     std::map<std::string,int> quants;
 
@@ -46,25 +50,28 @@ struct structure{
     }
 };
 
-
-bool max_compare(const std::pair<int, order*>& lhs, const std::pair<int, order*>& rhs) {
-    if(lhs.first == rhs.first){
-        if(lhs.second->start_time == rhs.second->start_time){
-            return lhs.second->broker > rhs.second->broker;
+struct max_compare{
+    bool operator()(const std::pair<int, order*>& lhs, const std::pair<int, order*>& rhs) {
+        if(lhs.first == rhs.first){
+            if(lhs.second->start_time == rhs.second->start_time){
+                return lhs.second->broker > rhs.second->broker;
+            }
+            return lhs.second->start_time > rhs.second->start_time;
         }
-        return lhs.second->start_time > rhs.second->start_time;
+        return lhs.first < rhs.first; // Comparing based on the first parameter (integer)
     }
-    return lhs.first < rhs.first; // Comparing based on the first parameter (integer)
 };
 
-bool min_compare(const std::pair<int, order*>& lhs, const std::pair<int, order*>& rhs) {
-    if(lhs.first == rhs.first){
-        if(lhs.second->start_time == rhs.second->start_time){
-            return lhs.second->broker > rhs.second->broker;
+struct min_compare{
+    bool operator()(const std::pair<int, order*>& lhs, const std::pair<int, order*>& rhs) {
+        if(lhs.first == rhs.first){
+            if(lhs.second->start_time == rhs.second->start_time){
+                return lhs.second->broker > rhs.second->broker;
+            }
+            return lhs.second->start_time > rhs.second->start_time;
         }
-        return lhs.second->start_time > rhs.second->start_time;
+        return lhs.first > rhs.first; // Comparing based on the first parameter (integer)
     }
-    return lhs.first > rhs.first; // Comparing based on the first parameter (integer)
 };
 
 void market::start()
@@ -92,7 +99,7 @@ void market::start()
         line1 = line;
         a++;
         if(a!=1){
-            orders.push_back(line1);
+            orders.push_back(line1+" ");
         }
     }           // till now i have got my whole market orders in orders
     inputFile.close();
@@ -144,6 +151,7 @@ void market::start()
                         t->quantities[t->companies.back()] = std::stoi(word);
                     }
                 }
+                word="";
                 a++;
             }
             else{
@@ -156,17 +164,23 @@ void market::start()
         trade_orders.push_back(t);
     }
     // Now, i will start iterating the orders
-    
 
-    std::map<structure,std::priority_queue<std::pair<int, order*>, std::vector<std::pair<int, order*>>, decltype(&max_compare)>> buy_queues;   // max heap for buy
+    std::map<std::string,std::priority_queue<std::pair<int, order*>, std::vector<std::pair<int, order*>>, max_compare>> buy_queues;   // max heap for buy
     std::pair<int,order*> x;
     std::vector<std::pair<int,order*>> v;
-    std::map<structure,std::priority_queue<std::pair<int, order*>, std::vector<std::pair<int, order*>>, decltype(&min_compare)>> sell_queues;  // min heap for sell
+    std::map<std::string,std::priority_queue<std::pair<int, order*>, std::vector<std::pair<int, order*>>, min_compare>> sell_queues;  // min heap for sell
+    int total_amount = 0;
+    int number_trades = 0;
+    int number_of_shares = 0;
+    std::map<std::string,std::pair<int,int>> shares;
+    std::map<std::string,int> amount;
+
     for(int i=0;i<trade_orders.size();i++){
         struct order* t = trade_orders[i];
-        struct structure s;
-        s.quants = t->quantities;
+
+        std::string s = t->companies[0];
         if(t->offer == 0){  // buy order
+            // std::cout<<"buy"<<std::endl;
             if(sell_queues[s].empty()){
                 buy_queues[s].push(std::make_pair(t->price,t));
                 continue;
@@ -174,9 +188,11 @@ void market::start()
             else{
                 while(!sell_queues[s].empty()){
                     if(t->price < sell_queues[s].top().first){
+                        // std::cout<<"hii1"<<std::endl;
                         break;
                     }
                     else if(t->price >= sell_queues[s].top().first){
+                        // return;
                         if(t->start_time > sell_queues[s].top().second->end_time){
                             v.push_back(sell_queues[s].top());
                             sell_queues[s].pop();
@@ -187,6 +203,13 @@ void market::start()
                         if(t->quantity < x.second->quantity){
                             x.second->quantity -= t->quantity;
                             //now print the message
+                            total_amount += t->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += t->quantity;
+                            shares[t->broker].first += t->quantity;
+                            shares[x.second->broker].second += t->quantity;
+                            amount[t->broker] -= t->quantity * x.first;
+                            amount[x.second->broker] += t->quantity * x.first;
                             std::cout<<t->broker<<" purchased "<<t->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -202,12 +225,18 @@ void market::start()
                                 }
                             }
                             std :: cout << " from " << x.second->broker << " for $" << x.first << "/share"<<std::endl;
-
+                            t->quantity = 0;
                             break;
                         }
                         else if(t->quantity == x.second->quantity){
-                            sell_queues[s].pop();
                             //print the message
+                            total_amount += t->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += t->quantity;
+                            shares[t->broker].first += t->quantity;
+                            shares[x.second->broker].second += t->quantity;
+                            amount[t->broker] -= t->quantity * x.first;
+                            amount[x.second->broker] += t->quantity * x.first;
                             std::cout<<t->broker<<" purchased "<<t->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -223,11 +252,19 @@ void market::start()
                                 }
                             }
                             std :: cout << " from " << x.second->broker << " for $" << x.first << "/share"<<std::endl;
-
+                            sell_queues[s].pop();
+                            t->quantity = 0;
                             break;
                         }
                         else if(t->quantity > x.second->quantity){
                             //print the message
+                            total_amount += x.second->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += x.second->quantity;
+                            shares[t->broker].first += x.second->quantity;
+                            shares[x.second->broker].second += x.second->quantity;
+                            amount[t->broker] -= x.second->quantity * x.first;
+                            amount[x.second->broker] += x.second->quantity * x.first;
                             std::cout<<t->broker<<" purchased "<<x.second->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -262,12 +299,14 @@ void market::start()
             
         }
         else{    // sell order
+            // std::cout<<"sell"<<std::endl;
             if(buy_queues[s].empty()){
+                // std::cout<<"hii"<<std::endl;
                 sell_queues[s].push(std::make_pair(t->price,t));
                 continue;
             }
             else{
-                while(!buy_queues.empty()){
+                while(!buy_queues[s].empty()){
                     if(t->price > buy_queues[s].top().first){
                         break;
                     }
@@ -282,6 +321,13 @@ void market::start()
                         if(t->quantity < x.second->quantity){
                             x.second->quantity -= t->quantity;
                             //print messsage
+                            total_amount += t->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += t->quantity;
+                            shares[t->broker].second += t->quantity;
+                            shares[x.second->broker].first += t->quantity;
+                            amount[t->broker] += t->quantity * x.first;
+                            amount[x.second->broker] -= t->quantity * x.first;
                             std::cout<<x.second->broker<<" purchased "<<t->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -297,12 +343,19 @@ void market::start()
                                 }
                             }
                             std :: cout << " from " << t->broker << " for $" << x.first << "/share"<<std::endl;
-
+                            t->quantity = 0;
                             break;
                         }
                         else if(t->quantity == x.second->quantity){
-                            buy_queues[s].pop();
+                            
                             //print the message
+                            total_amount += t->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += t->quantity;
+                            shares[t->broker].second += t->quantity;
+                            shares[x.second->broker].first += t->quantity;
+                            amount[t->broker] += t->quantity * x.first;
+                            amount[x.second->broker] -= t->quantity * x.first;
                             std::cout<<x.second->broker<<" purchased "<<t->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -318,11 +371,19 @@ void market::start()
                                 }
                             }
                             std :: cout << " from " << t->broker << " for $" << x.first << "/share"<<std::endl;
-
+                            buy_queues[s].pop();
+                            t->quantity = 0;
                             break;
                         }
                         else if(t->quantity > x.second->quantity){
                             //print the message
+                            total_amount += x.second->quantity * x.first;
+                            number_trades += 1;
+                            number_of_shares += x.second->quantity;
+                            shares[t->broker].second += x.second->quantity;
+                            shares[x.second->broker].first += x.second->quantity;
+                            amount[t->broker] += x.second->quantity * x.first;
+                            amount[x.second->broker] -= x.second->quantity * x.first;
                             std::cout<<x.second->broker<<" purchased "<<x.second->quantity<<" share of ";
                             if(t->companies.size() == 1){
                                 if(t->quantities[t->companies[0]] == 1){
@@ -352,12 +413,22 @@ void market::start()
                 for(int i=0;i<v.size();i++){
                     buy_queues[s].push(v.back());
                     v.pop_back();
-                }
-                
+                }   
             }
-            
         }
+        // return;
+
     }
+
+    std::cout << "\n";
+    std::cout << "---End of Day---"<<std::endl;
+    std::cout << "Total Amount of Money Transferred: $"<<total_amount<<std::endl;
+    std::cout << "Number of Completed Trades: "<<number_trades<<std::endl;
+    std::cout << "Number of Shares Traded: "<<number_of_shares << std::endl;
+    for(auto i : amount){
+        std::cout << i.first << " bought " << shares[i.first].first << " and sold " << shares[i.first].second << " for a net transfer of $"<< i.second << std::endl;
+    }
+
+
     return;
 }
-
